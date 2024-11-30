@@ -1,0 +1,121 @@
+---
+title: "Converting binary to decimal"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(torch)
+```
+
+## Using lm
+
+```{r}
+set.seed(2024-05-08)
+
+dataset1 <- map_dfr(0:255, ~ intToBits(.x) |> 
+              as.double() |> 
+              rev() |> 
+              tail(8) |> 
+              matrix(ncol = 8) |> 
+              as.data.frame()) |> 
+  set_names(2^(0:7) |> rev() |> as.character() |> (\(x) paste0("X", x))()) |> 
+  as_tibble() |> 
+  mutate(Y = 0:255) 
+
+dataset1_lm <- lm(Y ~ ., data = dataset1)
+dataset1_lm |> summary()
+dataset1_resid <- resid(lm(Y ~ ., data = dataset1))
+
+# Introduce Sources of Error
+dataset1 <- dataset1 |> 
+  mutate(XR1 = sample(0:1, 256, replace = TRUE)) |>
+  mutate(XR2 = sample(0:1, 256, replace = TRUE)) |>
+  mutate(XR3 = sample(0:1, 256, replace = TRUE))
+
+for(i in seq_along(1:nrow(dataset1))) {
+  for(j in seq_along(1:length(dataset1))) {
+    p_change <- .01
+    toss <- sample(c(TRUE, FALSE), size = 1, prob = c(p_change, 1 - p_change))
+    if(toss){
+      dataset1[[i, j]] <- as.numeric(!dataset1[[i, j]])
+    }
+  }
+}
+
+lm(Y ~ ., data = dataset1) |> summary()
+```
+
+## Using torch 
+
+Sean wants a Quarto doc on what each line / method is doing below. Think about C. elegans. 
+
+
+## Closer Look at the PyTorch API
+
+```{python}
+import torch.nn.functional as F
+
+# Step 1: Setup
+class MultilayerPerceptron(torch.nn.Module):
+  
+  # In the init method, we define the model parameters that will be instantiated
+  # when creating an object of this class
+  def __init__(self, num_features, num_classes):
+     super(MultilayerPerceptron, self).__init()
+     
+     # 1st hidden layer
+     self.linear_1 = torch.nn.Linear(num_feat, num_h1) # Random weights
+     # 2nd hidden layer
+     self.linear_2 = torch.nn.Linear(num_h1, num_h2) # Random weights
+     # Output layer
+     self.linear_out = torch.nn.Linear(num_h2, num_classes) # Random weights
+  
+  # Define how and in what order the model parameters should be used in the forward pass
+  def forward(self, x):
+    out = self.linear_1(x) # Compute the net input from fully connected layer
+    out = F.relu(out) # Compute the ReLU
+    out = self.linear_2(out) # Compute net input from fully connected layer
+    out = F.relu(out) # Again compute the ReLU
+    
+    logits = self.linear_out(out)
+    probas = F.log_softmax(logits, dim = 1)
+    
+    return logits, probas
+
+
+# Step 2: Create
+torch.manual_seed(random_seed)
+# Instantiate the model
+model = MultilayerPerceptron(num_features = num_features, num_classes = num_classes)
+# Optimization method: SGD (Stochastic Gradient Descent)
+optimizer = torch.optim.SGD(model.parameters(), lr = learning_rate)
+
+
+# Step 3: Training
+for epoch in range(num_epochs): # Run for specified number of epochs
+  model.train()
+  for batch_idx, (features, targets) in enumerate(train_loader):
+    # If your model is on the GPU, data should also be on the GPU
+    features = features.view(-1, 28*28).to(device)
+    targets = targets.to(device)
+    
+    # Forward and Backward Prop
+    logits, probas = model(features)
+    # Note: Instead of calling model.forward(features), we call model(features)
+    
+    # How classes work in Python:
+    # y = model(x) calls .__call__ and then model.forward()
+    # don't run y = model.forward(x) directly
+    
+    cost = F.cross_entropy(probas, targets)
+    optimizer.zero_grad()
+    # Backward propagation
+    cost.backward()
+    # Update model parameters
+    optimizer.step()
+    
+  model.eval()
+  # ....
+```
